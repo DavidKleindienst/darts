@@ -12,7 +12,7 @@ import pandas as pd
 
 from darts import TimeSeries
 from darts.dataprocessing.transformers import FittableDataTransformer
-from darts.logging import get_logger, raise_if
+from darts.logging import get_logger, raise_if, raise_log
 from darts.utils.timeseries_generation import generate_index
 
 SupportedIndex = Union[pd.DatetimeIndex, pd.RangeIndex]
@@ -32,6 +32,8 @@ class CovariatesIndexGenerator(ABC):
         input_chunk_length: int,
         output_chunk_length: int,
         reference_index_type: ReferenceIndexType = ReferenceIndexType.NONE,
+        min_covariates_lag: Optional[int] = None,
+        max_covariates_lag: Optional[int] = None,
     ):
         """
         Parameters
@@ -46,11 +48,31 @@ class CovariatesIndexGenerator(ABC):
         """
         self.input_chunk_length = input_chunk_length
         self.output_chunk_length = output_chunk_length
+
         self.reference_index_type = reference_index_type
         self.reference_index: Optional[Tuple[int, Union[pd.Timestamp, int]]] = None
 
+        # check lags validity
+        self._verify_lags(min_covariates_lag, max_covariates_lag)
+        if min_covariates_lag is not None:
+            # for lags < 0 we need to take `n` steps backwards from past and/or historic future covariates
+            # for minimum lag = -1 -> steps_back_inclusive = 1
+            # `shift_start` means n steps back including the end of the target series
+            shift_start = min_covariates_lag
+            # for lags >= 0 we need to take `n` steps ahead from future covariates
+            # for maximum lag = 0 -> output_chunk_length = 1
+            # `shift_end` steps ahead after the last step of the target series
+            shift_end = (
+                max_covariates_lag if max_covariates_lag < 0 else max_covariates_lag + 1
+            )
+        else:
+            shift_start = 0
+            shift_end = 0
+        self.shift_start = shift_start
+        self.shift_end = shift_end
+
     @abstractmethod
-    def generate_train_series(
+    def generate_train_idx(
         self, target: TimeSeries, covariates: Optional[TimeSeries] = None
     ) -> SupportedIndex:
         """
@@ -66,7 +88,7 @@ class CovariatesIndexGenerator(ABC):
         pass
 
     @abstractmethod
-    def generate_inference_series(
+    def generate_inference_idx(
         self, n: int, target: TimeSeries, covariates: Optional[TimeSeries] = None
     ) -> SupportedIndex:
         """
@@ -92,15 +114,52 @@ class CovariatesIndexGenerator(ABC):
         """
         pass
 
+    def _verify_lags(self, min_covariates_lag, max_covariates_lag):
+        """Check the bas requirements for `min_covariates_lag` and `max_covariates_lag`:
+        - both must either be None or an integer
+        - min_covariates_lag < max_covariates_lag
+
+        This method can be extended by subclasses for past and future covariates lag requirements.
+        """
+        # check that either None one of min/max_covariates_lag are given, or both are given
+        if (not min_covariates_lag and max_covariates_lag) or (
+            min_covariates_lag and not max_covariates_lag
+        ):
+            raise_log(
+                ValueError(
+                    "`min_covariates_lag` and `max_covariates_lag` must either both be `None` or both be integers"
+                ),
+                logger=logger,
+            )
+        if min_covariates_lag is not None:
+            # check that if one of the two is given, both must be integers
+            if not isinstance(min_covariates_lag, int) or not isinstance(
+                max_covariates_lag, int
+            ):
+                raise_log(
+                    ValueError(
+                        "`min_covariates_lag` and `max_covariates_lag` must be both be integers."
+                    ),
+                    logger=logger,
+                )
+            # minimum lag must be less than maximum lag
+            if min_covariates_lag > max_covariates_lag:
+                raise_log(
+                    ValueError(
+                        "`min_covariates_lag` must be smaller than/equal to `max_covariates_lag`."
+                    ),
+                    logger=logger,
+                )
+
 
 class PastCovariatesIndexGenerator(CovariatesIndexGenerator):
     """Generates index for past covariates on train and inference datasets"""
 
-    def generate_train_series(
+    def generate_train_idx(
         self, target: TimeSeries, covariates: Optional[TimeSeries] = None
     ) -> SupportedIndex:
 
-        super().generate_train_series(target, covariates)
+        super().generate_train_idx(target, covariates)
 
         # save a reference index if specified
         if (
@@ -112,43 +171,112 @@ class PastCovariatesIndexGenerator(CovariatesIndexGenerator):
             else:  # save the time step before start of target series
                 self.reference_index = (-1, target.start_time() - target.freq)
 
-        return covariates.time_index if covariates is not None else target.time_index
+        # the returned index depends on the following cases:
+        # case 0
+        #     user supplied covariates: simply return the covariate time index; guarantees that an exception is
+        #     raised if user supplied insufficient covariates
+        # case 1
+        #     only input_chunk_length and output_chunk_length are given: the complete covariate index is within the
+        #     target index; always True for all models except RegressionModels.
+        # case 2
+        #     covariate lags were given (shift_start and shift_end are < 0) and shift_start <= input_chunk_length:
+        #     the complete covariate index is within the target index; can only be True for RegressionModels.
+        # case 3
+        #     covariate lags were given (shift_start and shift_end are < 0) and shift_start > input_chunk_length:
+        #     we need to add indices before the beginning of the target series; can only be True for RegressionModels.
 
-    def generate_inference_series(
+        if covariates is not None:  # case 0
+            return covariates.time_index
+
+        if not self.shift_start:  # case 1
+            steps_ahead_start = 0
+        else:
+            steps_ahead_start = self.input_chunk_length - abs(self.shift_start)
+
+        if not self.shift_end:  # case 1
+            steps_back_end = -self.output_chunk_length
+        else:
+            steps_back_end = -(self.output_chunk_length + abs(self.shift_end + 1))
+        steps_back_end = steps_back_end if steps_back_end else None
+
+        # case 1 & 2
+        if steps_ahead_start >= 0:
+            return target.time_index[steps_ahead_start:steps_back_end]
+
+        # case 3 - note: pandas' union() gives type hint warning, so we construct index directly from index class
+        return target.time_index.__class__(
+            generate_index(
+                end=target.start_time() - target.freq,
+                length=abs(steps_ahead_start),
+                freq=target.freq,
+            ).union(target.time_index[:steps_back_end])
+        )
+
+    def generate_inference_idx(
         self, n: int, target: TimeSeries, covariates: Optional[TimeSeries] = None
     ) -> SupportedIndex:
-        """For prediction (`n` is given) with past covariates we have to distinguish between two cases:
-        1)  If past covariates are given, we can use them as reference
-        2)  If past covariates are missing, we need to generate a time index that starts `input_chunk_length`
-            before the end of `target` and ends `max(0, n - output_chunk_length)` after the end of `target`
-        """
 
-        super().generate_inference_series(n, target, covariates)
-        if covariates is not None:
+        # for prediction (`n` is given) with past covariates the returned index depends on the following cases:
+        # case 0
+        #     user supplied covariates: simply return the covariate time index; guarantees that an exception is
+        #     raised if user supplied insufficient covariates
+        # case 1
+        #     only input_chunk_length and output_chunk_length are given: we need to generate a time index that starts
+        #     `input_chunk_length - 1` before the end of `target` and ends `max(0, n - output_chunk_length)` after the
+        #     end of `target`; always True for all models except RegressionModels.
+        # case 2
+        #     covariate lags were given (shift_start and shift_end are < 0): we need to generate a time index that
+        #     starts `abs(shift_start) - 1` before the end of `target` and has a length of
+        #     `shift_steps + max(0, n - output_chunk_length)`, where `shift_steps` is the number of time steps between
+        #     `shift_start` and `shift_end`; can only be True for RegressionModels.
+
+        super().generate_inference_idx(n, target, covariates)
+        if covariates is not None:  # case 0
             return covariates.time_index
-        else:
-            return generate_index(
-                start=target.end_time() - target.freq * (self.input_chunk_length - 1),
-                length=self.input_chunk_length + max(0, n - self.output_chunk_length),
-                freq=target.freq,
-            )
+
+        if not self.shift_start:  # case 1
+            steps_back_end = self.input_chunk_length - 1
+        else:  # case 2
+            steps_back_end = abs(self.shift_start) - 1
+
+        if not self.shift_end:  # case 1
+            n_steps = steps_back_end + 1 + max(0, n - self.output_chunk_length)
+        else:  # case 2
+            shift_steps = abs(self.shift_end - self.shift_start) + 1
+            n_steps = shift_steps + max(0, n - self.output_chunk_length)
+
+        return generate_index(
+            start=target.end_time() - target.freq * steps_back_end,
+            length=n_steps,
+            freq=target.freq,
+        )
 
     @property
     def base_component_name(self) -> str:
         return "pc"
 
+    def _verify_lags(self, min_covariates_lag, max_covariates_lag):
+        # general lag checks
+        super()._verify_lags(min_covariates_lag, max_covariates_lag)
+        # check past covariate specific lag requirements
+        if min_covariates_lag is not None and min_covariates_lag >= 0:
+            raise_log(ValueError("`min_covariates_lag` must be < 0."), logger=logger)
+
+        if max_covariates_lag is not None and max_covariates_lag >= 0:
+            raise_log(ValueError("`max_covariates_lag` must be < 0."), logger=logger)
+
 
 class FutureCovariatesIndexGenerator(CovariatesIndexGenerator):
     """Generates index for future covariates on train and inference datasets."""
 
-    def generate_train_series(
+    def generate_train_idx(
         self, target: TimeSeries, covariates: Optional[TimeSeries] = None
     ) -> SupportedIndex:
         """For training (when `n` is `None`) we can simply use the future covariates (if available) or target as
         reference to extract the time index.
         """
 
-        super().generate_train_series(target, covariates)
+        super().generate_train_idx(target, covariates)
 
         # save a reference index if specified
         if (
@@ -162,7 +290,7 @@ class FutureCovariatesIndexGenerator(CovariatesIndexGenerator):
 
         return covariates.time_index if covariates is not None else target.time_index
 
-    def generate_inference_series(
+    def generate_inference_idx(
         self, n: int, target: TimeSeries, covariates: Optional[TimeSeries] = None
     ) -> SupportedIndex:
         """For prediction (`n` is given) with future covariates we have to distinguish between two cases:
@@ -170,7 +298,7 @@ class FutureCovariatesIndexGenerator(CovariatesIndexGenerator):
         2)  If future covariates are missing, we need to generate a time index that starts `input_chunk_length`
             before the end of `target` and ends `max(n, output_chunk_length)` after the end of `target`
         """
-        super().generate_inference_series(n, target, covariates)
+        super().generate_inference_idx(n, target, covariates)
 
         if covariates is not None:
             return covariates.time_index
@@ -314,8 +442,8 @@ class SingleEncoder(Encoder, ABC):
         Parameters
         ----------
         index_generator
-            An instance of `CovariatesIndexGenerator` with methods `generate_train_series()` and
-            `generate_inference_series()`. Used to generate the index for encoders.
+            An instance of `CovariatesIndexGenerator` with methods `generate_train_idx()` and
+            `generate_inference_idx()`. Used to generate the index for encoders.
         """
 
         super().__init__()
@@ -360,7 +488,7 @@ class SingleEncoder(Encoder, ABC):
         covariates = self._drop_encoded_components(covariates, self.components)
 
         # generate index and encodings
-        index = self.index_generator.generate_train_series(target, covariates)
+        index = self.index_generator.generate_train_idx(target, covariates)
         encoded = self._encode(index, target.dtype)
 
         # optionally, merge encodings with original `covariates` series
@@ -415,7 +543,7 @@ class SingleEncoder(Encoder, ABC):
         covariates = self._drop_encoded_components(covariates, self.components)
 
         # generate index and encodings
-        index = self.index_generator.generate_inference_series(n, target, covariates)
+        index = self.index_generator.generate_inference_idx(n, target, covariates)
         encoded = self._encode(index, target.dtype)
 
         # optionally, merge encodings with original `covariates` series
