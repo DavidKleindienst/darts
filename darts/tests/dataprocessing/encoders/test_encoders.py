@@ -416,7 +416,11 @@ class EncoderTestCase(DartsBaseTestClass):
                 covs_train2 = encoder.encode_train(
                     target=ts, covariates=covs_train, merge_covariates=merge_covs
                 )
-                assert covs_train2 == covs_train
+                if merge_covs:
+                    assert covs_train2 == covs_train
+                else:
+                    overlap = covs_train.slice_intersect(covs_train2)
+                    assert covs_train2 == overlap
 
                 # we can use the output of `encode_train()` as input for `encode_inference()`. The encoded components
                 # are dropped internally and appended again at the end
@@ -429,11 +433,13 @@ class EncoderTestCase(DartsBaseTestClass):
                 # We get only the minimum required time spans with `merge_covariates=False` as input covariates will
                 # are not in output of `encode_train()/inference()`
                 else:
+                    overlap = covs_inf.slice_intersect(covs_inf2)
                     if isinstance(
                         encoder.index_generator, PastCovariatesIndexGenerator
                     ):
                         assert len(covs_inf2) == input_chunk_length
                         assert covs_inf2.end_time() == ts.end_time()
+                        assert covs_inf2 == overlap
                     else:
                         assert (
                             len(covs_inf2) == input_chunk_length + output_chunk_length
@@ -442,6 +448,8 @@ class EncoderTestCase(DartsBaseTestClass):
                             covs_inf2.end_time()
                             == ts.end_time() + ts.freq * output_chunk_length
                         )
+                        overlap_inf = covs_inf2.slice_intersect(overlap)
+                        assert overlap_inf == overlap
 
                 # we can use the output of `encode_inference()` as input for `encode_inference()` and get the
                 # same results (encoded components get overwritten)
@@ -750,17 +758,20 @@ class EncoderTestCase(DartsBaseTestClass):
         )
 
         # absolute encoder takes the first observed index as a reference (from training)
-        vals = np.arange(len(ts)).reshape((len(ts), 1))
+        vals = np.arange(len(ts) - output_chunk_length).reshape(
+            (len(ts) - output_chunk_length, 1)
+        )
         self.assertTrue(
-            (t1.time_index == ts.time_index).all() and (t1.values() == vals).all()
+            t1.time_index.equals(ts.time_index[:-output_chunk_length])
+            and (t1.values() == vals).all()
         )
         # test that the position values are updated correctly
         self.assertTrue(
-            (t2.time_index == ts.time_index + ts.freq).all()
+            t2.time_index.equals(ts.time_index[:-output_chunk_length] + ts.freq)
             and (t2.values() == vals + 1).all()
         )
         self.assertTrue(
-            (t3.time_index == ts.time_index - ts.freq).all()
+            t3.time_index.equals(ts.time_index[:-output_chunk_length] - ts.freq)
             and (t3.values() == vals - 1).all()
         )
         # quickly test inference encoding
@@ -799,16 +810,19 @@ class EncoderTestCase(DartsBaseTestClass):
             TimeSeries.from_times_and_values(ts.time_index - ts.freq, ts.values())
         )
         # relative encoder takes the end of the training series as reference
-        vals = np.arange(-len(ts) + 1, 1).reshape((len(ts), 1))
-        self.assertTrue(
-            (t1.time_index == ts.time_index).all() and (t1.values() == vals).all()
+        vals = np.arange(-len(ts) + 1, -output_chunk_length + 1).reshape(
+            (len(ts) - output_chunk_length, 1)
         )
         self.assertTrue(
-            (t2.time_index == ts.time_index + ts.freq).all()
+            t1.time_index.equals(ts.time_index[:-output_chunk_length])
+            and (t1.values() == vals).all()
+        )
+        self.assertTrue(
+            t2.time_index.equals(ts.time_index[:-output_chunk_length] + ts.freq)
             and (t2.values() == vals + 1).all()
         )
         self.assertTrue(
-            (t3.time_index == ts.time_index - ts.freq).all()
+            t3.time_index.equals(ts.time_index[:-output_chunk_length] - ts.freq)
             and (t3.values() == vals - 1).all()
         )
         # quickly test inference encoding
@@ -1048,6 +1062,7 @@ class EncoderTestCase(DartsBaseTestClass):
             encoded.append(
                 encoder.encode_train(ts, cov, merge_covariates=merge_covariates)
             )
+
         self.assertTrue(encoded == result)
 
     def helper_test_encoder_single_inference(
