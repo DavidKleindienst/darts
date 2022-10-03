@@ -287,6 +287,7 @@ class CovariatesIndexGeneratorTestCase(DartsBaseTestClass):
         icl = self.input_chunk_length
         ocl = self.output_chunk_length
         freq = self.target_time.freq
+        target = self.target_time
 
         def test_routine_train(
             self, icl, ocl, min_lag, max_lag, start_expected, end_expected
@@ -294,74 +295,90 @@ class CovariatesIndexGeneratorTestCase(DartsBaseTestClass):
             idxg = PastCovariatesIndexGenerator(
                 icl, ocl, min_covariates_lag=min_lag, max_covariates_lag=max_lag
             )
-            idx = idxg.generate_train_idx(self.target_time, None)
-            self.assertEqual(idx[0], start_expected)
-            self.assertEqual(idx[-1], end_expected)
+            idx = idxg.generate_train_idx(target, None)
+            self.assertEqual(idx[0], pd.Timestamp(start_expected, freq=freq))
+            self.assertEqual(idx[-1], pd.Timestamp(end_expected, freq=freq))
             # check case 0: we give covariates, index will always be the covariate time index
-            idx = idxg.generate_train_idx(self.target_time, self.cov_time_train)
+            idx = idxg.generate_train_idx(target, self.cov_time_train)
             self.assertTrue(idx.equals(self.cov_time_train.time_index))
             return idxg
 
         def test_routine_inf(self, idxg, n, start_expected, end_expected):
-            idx = idxg.generate_inference_idx(n, self.target_time, None)
-            self.assertEqual(idx[0], start_expected)
-            self.assertEqual(idx[-1], end_expected)
+            idx = idxg.generate_inference_idx(n, target, None)
+            self.assertEqual(idx[0], pd.Timestamp(start_expected, freq=freq))
+            self.assertEqual(idx[-1], pd.Timestamp(end_expected, freq=freq))
             # check case 0: we give covariates, index will always be the covariate time index
-            idx = idxg.generate_inference_idx(
-                n, self.target_time, self.cov_time_inf_short
-            )
+            idx = idxg.generate_inference_idx(n, target, self.cov_time_inf_short)
             self.assertTrue(idx.equals(self.cov_time_inf_short.time_index))
 
         # lags are required for RegressionModels
-        # case 1: abs(min_covariates_lags) == input_chunk_length and abs(max_covariates_lag) == -1:
+        # case 1: abs(min_lags) == icl and abs(max_lag) == -1:
         # will give identical results as without setting lags
-        expected_start = self.target_time.start_time()
-        expected_end = self.target_time.end_time() - freq * self.output_chunk_length
-        ig = test_routine_train(self, icl, ocl, -icl, -1, expected_start, expected_end)
+        min_lag = -12  # = -icl
+        max_lag = -1
+        expected_start = "2000-01-01"
+        expected_end = "2001-06-01"
+        ig = test_routine_train(
+            self, icl, ocl, min_lag, max_lag, expected_start, expected_end
+        )
         self.helper_test_index_types(ig)
         self.helper_test_index_generator_train(ig)
         self.helper_test_index_generator_inference(ig, is_past=True)
-        # check inference for n <= output_chunk_length
-        expected_start = self.target_time.end_time() - (icl - 1) * freq
-        expected_end = self.target_time.end_time()
+        # check inference for n <= ocl
+        expected_start = "2001-01-01"
+        expected_end = "2001-12-01"
         test_routine_inf(self, ig, 1, expected_start, expected_end)
         test_routine_inf(self, ig, ocl, expected_start, expected_end)
-        # check inference for n > output_chunk_length
-        test_routine_inf(self, ig, ocl + 1, expected_start, expected_end + 1 * freq)
+        # check inference for n > ocl
+        test_routine_inf(self, ig, ocl + 1, expected_start, "2002-01-01")
 
-        # case 2: abs(min_covariates_lag) > input_chunk_length and abs(max_covariates_lag) == -1:
+        # case 2: abs(min_lag) < icl and abs(max_lag) == -1:
         # the start time of covariates begins before target start
-        expected_start = self.target_time.start_time() - freq
-        expected_end = self.target_time.end_time() - freq * self.output_chunk_length
+        min_lag, max_lag = -11, -1
+        expected_start = "2000-02-01"
+        expected_end = "2001-06-01"
+        ig = test_routine_train(
+            self, icl, ocl, min_lag, max_lag, expected_start, expected_end
+        )
+        # check inference for n <= ocl
+        expected_start = "2001-02-01"
+        expected_end = "2001-12-01"
+        test_routine_inf(self, ig, 1, expected_start, expected_end)
+        test_routine_inf(self, ig, ocl, expected_start, expected_end)
+        # check inference for n > ocl
+        test_routine_inf(self, ig, ocl + 1, expected_start, "2002-01-01")
+
+        # case 3: abs(min_lag) > icl and abs(max_lag) == -1:
+        # the start time of covariates begins before target start
         min_lag, max_lag = -13, -1
+        expected_start = "1999-12-01"
+        expected_end = "2001-06-01"
         ig = test_routine_train(
             self, icl, ocl, min_lag, max_lag, expected_start, expected_end
         )
-        # check inference for n <= output_chunk_length
-        expected_start = self.target_time.end_time() - 12 * freq
-        expected_end = self.target_time.end_time()
+        # check inference for n <= ocl
+        expected_start = "2000-12-01"
+        expected_end = "2001-12-01"
         test_routine_inf(self, ig, 1, expected_start, expected_end)
         test_routine_inf(self, ig, ocl, expected_start, expected_end)
-        # check inference for n > output_chunk_length
-        test_routine_inf(self, ig, ocl + 1, expected_start, expected_end + 1 * freq)
+        # check inference for n > ocl
+        test_routine_inf(self, ig, ocl + 1, expected_start, "2002-01-01")
 
-        # case 3: abs(min_covariates_lag) > input_chunk_length and abs(max_covariates_lag) > -1:
+        # case 4: abs(min_lag) > icl and abs(max_lag) > -1:
         # the start time of covariates begins before target start
-        expected_start = self.target_time.start_time() - freq
-        expected_end = self.target_time.end_time() - freq * (
-            1 + self.output_chunk_length
-        )
         min_lag, max_lag = -13, -2
+        expected_start = "1999-12-01"
+        expected_end = "2001-05-01"
         ig = test_routine_train(
             self, icl, ocl, min_lag, max_lag, expected_start, expected_end
         )
-        # check inference for n <= output_chunk_length
-        expected_start = self.target_time.end_time() - 12 * freq
-        expected_end = self.target_time.end_time() - freq
+        # check inference for n <= ocl
+        expected_start = "2000-12-01"
+        expected_end = "2001-11-01"
         test_routine_inf(self, ig, 1, expected_start, expected_end)
         test_routine_inf(self, ig, ocl, expected_start, expected_end)
-        # check inference for n > output_chunk_length
-        test_routine_inf(self, ig, ocl + 1, expected_start, expected_end + 1 * freq)
+        # check inference for n > ocl
+        test_routine_inf(self, ig, ocl + 1, expected_start, "2001-12-01")
 
     def test_future_index_generator(self):
         ig = FutureCovariatesIndexGenerator(
@@ -375,6 +392,7 @@ class CovariatesIndexGeneratorTestCase(DartsBaseTestClass):
         icl = self.input_chunk_length
         ocl = self.output_chunk_length
         freq = self.target_time.freq
+        target = self.target_time
 
         def test_routine_train(
             self, icl, ocl, min_lag, max_lag, start_expected, end_expected
@@ -382,71 +400,163 @@ class CovariatesIndexGeneratorTestCase(DartsBaseTestClass):
             idxg = FutureCovariatesIndexGenerator(
                 icl, ocl, min_covariates_lag=min_lag, max_covariates_lag=max_lag
             )
-            idx = idxg.generate_train_idx(self.target_time, None)
-            self.assertEqual(idx[0], start_expected)
-            self.assertEqual(idx[-1], end_expected)
+            idx = idxg.generate_train_idx(target, None)
+            self.assertEqual(idx[0], pd.Timestamp(start_expected, freq=freq))
+            self.assertEqual(idx[-1], pd.Timestamp(end_expected, freq=freq))
             # check case 0: we give covariates, index will always be the covariate time index
-            idx = idxg.generate_train_idx(self.target_time, self.cov_time_train)
+            idx = idxg.generate_train_idx(target, self.cov_time_train)
             self.assertTrue(idx.equals(self.cov_time_train.time_index))
             return idxg
 
         def test_routine_inf(self, idxg, n, start_expected, end_expected):
-            idx = idxg.generate_inference_idx(n, self.target_time, None)
-            self.assertEqual(idx[0], start_expected)
-            self.assertEqual(idx[-1], end_expected)
+            idx = idxg.generate_inference_idx(n, target, None)
+            self.assertTrue(idx[0], pd.Timestamp(start_expected, freq=freq))
+            self.assertTrue(idx[-1], pd.Timestamp(end_expected, freq=freq))
             # check case 0: we give covariates, index will always be the covariate time index
-            idx = idxg.generate_inference_idx(
-                n, self.target_time, self.cov_time_inf_short
-            )
+            idx = idxg.generate_inference_idx(n, target, self.cov_time_inf_short)
             self.assertTrue(idx.equals(self.cov_time_inf_short.time_index))
 
-        # lags are required for RegressionModels
-        # case 1: abs(min_covariates_lags) == input_chunk_length and abs(max_covariates_lag) == -1:
+        # INFO: test cases 1, 2, and 3 only have lags in the past which yields identical results as using a
+        # PastCovariatesIndexGenerator
+        # case 1: abs(min_lag) < icl and abs(max_lag) == -1:
+        # the start time of covariates begins before target start
+        min_lag, max_lag = -11, -1
+        expected_start = "2000-02-01"
+        expected_end = "2001-06-01"
+        ig = test_routine_train(
+            self, icl, ocl, min_lag, max_lag, expected_start, expected_end
+        )
+        # check inference for n <= ocl
+        expected_start = "2001-02-01"
+        expected_end = "2001-12-01"
+        test_routine_inf(self, ig, 1, expected_start, expected_end)
+        test_routine_inf(self, ig, ocl, expected_start, expected_end)
+        # check inference for n > ocl
+        test_routine_inf(self, ig, ocl + 1, expected_start, "2002-01-01")
+
+        # case 2: abs(min_lag) > icl and abs(max_lag) == -1:
+        # the start time of covariates begins before target start
+        min_lag, max_lag = -13, -1
+        expected_start = "1999-12-01"
+        expected_end = "2001-06-01"
+        ig = test_routine_train(
+            self, icl, ocl, min_lag, max_lag, expected_start, expected_end
+        )
+        # check inference for n <= ocl
+        expected_start = "2000-12-01"
+        expected_end = "2001-12-01"
+        test_routine_inf(self, ig, 1, expected_start, expected_end)
+        test_routine_inf(self, ig, ocl, expected_start, expected_end)
+        # check inference for n > ocl
+        test_routine_inf(self, ig, ocl + 1, expected_start, "2002-01-01")
+
+        # case 3: abs(min_lag) > icl and abs(max_lag) > -1:
+        # the start time of covariates begins before target start
+        min_lag, max_lag = -13, -2
+        expected_start = "1999-12-01"
+        expected_end = "2001-05-01"
+        ig = test_routine_train(
+            self, icl, ocl, min_lag, max_lag, expected_start, expected_end
+        )
+        # check inference for n <= ocl
+        expected_start = "2000-12-01"
+        expected_end = "2001-11-01"
+        test_routine_inf(self, ig, 1, expected_start, expected_end)
+        test_routine_inf(self, ig, ocl, expected_start, expected_end)
+        # check inference for n > ocl
+        test_routine_inf(self, ig, ocl + 1, expected_start, "2001-12-01")
+
+        # INFO: the following test cases have lags in the future which is different to PastCovariatesIndexGenerator
+        # case 4: abs(min_lags) == icl and max_lag == (ocl - 1):
         # will give identical results as without setting lags
-        expected_start = self.target_time.start_time()
-        expected_end = self.target_time.end_time() - freq * self.output_chunk_length
-        ig = test_routine_train(self, icl, ocl, -icl, -1, expected_start, expected_end)
+        min_lag = -12  # -icl
+        max_lag = 5  # (ocl - 1)
+        expected_start = "2000-01-01"
+        expected_end = "2001-12-01"
+        ig = test_routine_train(
+            self, icl, ocl, min_lag, max_lag, expected_start, expected_end
+        )
         self.helper_test_index_types(ig)
         self.helper_test_index_generator_train(ig)
-        self.helper_test_index_generator_inference(ig, is_past=True)
-        # check inference for n <= output_chunk_length
-        expected_start = self.target_time.end_time() - (icl - 1) * freq
-        expected_end = self.target_time.end_time()
+        self.helper_test_index_generator_inference(ig, is_past=False)
+        # check inference for n <= ocl
+        expected_start = "2001-01-01"
+        expected_end = "2002-06-01"
         test_routine_inf(self, ig, 1, expected_start, expected_end)
         test_routine_inf(self, ig, ocl, expected_start, expected_end)
-        # check inference for n > output_chunk_length
-        test_routine_inf(self, ig, ocl + 1, expected_start, expected_end + 1 * freq)
+        # check inference for n > ocl
+        test_routine_inf(self, ig, ocl + 1, expected_start, "2002-07-01")
 
-        # case 2: abs(min_covariates_lag) > input_chunk_length and abs(max_covariates_lag) == -1:
-        # the start time of covariates begins before target start
-        expected_start = self.target_time.start_time() - freq
-        expected_end = self.target_time.end_time() - freq * self.output_chunk_length
-        min_lag, max_lag = -13, -1
+        # case 5: abs(min_lag) == icl and max_lag < (ocl - 1)
+        # the end of covariates should be one time step after beginning of last output chunk with max_lag = 0
+        min_lag, max_lag = -12, 0
+        expected_start = "2000-01-01"
+        expected_end = "2001-07-01"
         ig = test_routine_train(
             self, icl, ocl, min_lag, max_lag, expected_start, expected_end
         )
-        # check inference for n <= output_chunk_length
-        expected_start = self.target_time.end_time() - 12 * freq
-        expected_end = self.target_time.end_time()
+        expected_start = "2001-01-01"
+        expected_end = "2002-01-01"
         test_routine_inf(self, ig, 1, expected_start, expected_end)
         test_routine_inf(self, ig, ocl, expected_start, expected_end)
-        # check inference for n > output_chunk_length
-        test_routine_inf(self, ig, ocl + 1, expected_start, expected_end + 1 * freq)
+        # check inference for n > ocl
+        test_routine_inf(self, ig, ocl + 1, expected_start, "2002-02-01")
 
-        # case 3: abs(min_covariates_lag) > input_chunk_length and abs(max_covariates_lag) > -1:
-        # the start time of covariates begins before target start
-        expected_start = self.target_time.start_time() - freq
-        expected_end = self.target_time.end_time() - freq * (
-            1 + self.output_chunk_length
-        )
-        min_lag, max_lag = -13, -2
+        # case 6: abs(min_lag) == icl and max_lag > (ocl - 1)
+        # the end of covariates is after the end of target series with max_lag = (ocl - 1) + 1
+        min_lag, max_lag = -12, 17
+        expected_start = "2000-01-01"
+        expected_end = "2002-12-01"
         ig = test_routine_train(
             self, icl, ocl, min_lag, max_lag, expected_start, expected_end
         )
-        # check inference for n <= output_chunk_length
-        expected_start = self.target_time.end_time() - 12 * freq
-        expected_end = self.target_time.end_time() - freq
+        expected_start = "2001-01-01"
+        expected_end = "2003-01-01"
         test_routine_inf(self, ig, 1, expected_start, expected_end)
         test_routine_inf(self, ig, ocl, expected_start, expected_end)
-        # check inference for n > output_chunk_length
-        test_routine_inf(self, ig, ocl + 1, expected_start, expected_end + 1 * freq)
+        # check inference for n > ocl
+        test_routine_inf(self, ig, ocl + 1, expected_start, "2003-02-01")
+
+        # case 7: min_lag >= 0 and max_lag <= (ocl - 1)
+        # only future part of future covariates (no historical part)
+        min_lag, max_lag = 0, 2
+        expected_start = "2001-01-01"
+        expected_end = "2001-09-01"
+        ig = test_routine_train(
+            self, icl, ocl, min_lag, max_lag, expected_start, expected_end
+        )
+        expected_start = "2002-01-01"
+        expected_end = "2002-03-01"
+        test_routine_inf(self, ig, 1, expected_start, expected_end)
+        test_routine_inf(self, ig, ocl, expected_start, expected_end)
+        # check inference for n > ocl
+        test_routine_inf(self, ig, ocl + 1, expected_start, "2002-04-01")
+
+        # case 8: min_lag >= 0 and max_lag > (ocl - 1)
+        # only future part of future covariates (no historical part)
+        min_lag, max_lag = 0, 17
+        expected_start = "2001-01-01"
+        expected_end = "2002-12-01"
+        ig = test_routine_train(
+            self, icl, ocl, min_lag, max_lag, expected_start, expected_end
+        )
+        expected_start = "2002-01-01"
+        expected_end = "2003-01-01"
+        test_routine_inf(self, ig, 1, expected_start, expected_end)
+        test_routine_inf(self, ig, ocl, expected_start, expected_end)
+        # check inference for n > ocl
+        test_routine_inf(self, ig, ocl + 1, expected_start, "2003-02-01")
+
+        # case 9: abs(min_lag) > icl and max_lag > (ocl - 1)
+        min_lag, max_lag = -13, 17
+        expected_start = "1999-12-01"
+        expected_end = "2002-12-01"
+        ig = test_routine_train(
+            self, icl, ocl, min_lag, max_lag, expected_start, expected_end
+        )
+        expected_start = "2000-12-01"
+        expected_end = "2002-03-01"
+        test_routine_inf(self, ig, 1, expected_start, expected_end)
+        test_routine_inf(self, ig, ocl, expected_start, expected_end)
+        # check inference for n > ocl
+        test_routine_inf(self, ig, ocl + 1, expected_start, "2002-04-01")

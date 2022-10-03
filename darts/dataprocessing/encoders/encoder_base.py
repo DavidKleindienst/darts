@@ -56,16 +56,22 @@ class CovariatesIndexGenerator(ABC):
         self._verify_lags(min_covariates_lag, max_covariates_lag)
         if min_covariates_lag is not None:
             # for lags < 0 we need to take `n` steps backwards from past and/or historic future covariates
-            # for minimum lag = -1 -> steps_back_inclusive = 1
-            # `shift_start` means n steps back including the end of the target series
-            shift_start = min_covariates_lag
             # for lags >= 0 we need to take `n` steps ahead from future covariates
-            # for maximum lag = 0 -> output_chunk_length = 1
-            # `shift_end` steps ahead after the last step of the target series
+
+            # `shift_start` sets the beginning of the covariates relative to the prediction point
+            # for minimum lag = -1 -> shift_start = -1 (i.e. the current day)
+            # for minimum lag = 0 -> shift_start = 1 (i.e. the next future day)
+            shift_start = (
+                min_covariates_lag if min_covariates_lag < 0 else min_covariates_lag + 1
+            )
+            # `shift_end` sets the end of the covariates relative to the prediction point
+            # for maximum lag = -1 -> shift_end = -1 (i.e. the current day)
+            # for maximum lag = 0 -> shift_end = 1 (i.e. the next future day)
             shift_end = (
                 max_covariates_lag if max_covariates_lag < 0 else max_covariates_lag + 1
             )
         else:
+            # shift can only be 0 if no lags were given
             shift_start = 0
             shift_end = 0
         self.shift_start = shift_start
@@ -122,8 +128,8 @@ class CovariatesIndexGenerator(ABC):
         This method can be extended by subclasses for past and future covariates lag requirements.
         """
         # check that either None one of min/max_covariates_lag are given, or both are given
-        if (not min_covariates_lag and max_covariates_lag) or (
-            min_covariates_lag and not max_covariates_lag
+        if (min_covariates_lag is not None and max_covariates_lag is None) or (
+            min_covariates_lag is None and max_covariates_lag is not None
         ):
             raise_log(
                 ValueError(
@@ -194,14 +200,14 @@ class PastCovariatesIndexGenerator(CovariatesIndexGenerator):
             steps_ahead_start = self.input_chunk_length - abs(self.shift_start)
 
         if not self.shift_end:  # case 1
-            steps_back_end = -self.output_chunk_length
+            steps_ahead_end = -self.output_chunk_length
         else:
-            steps_back_end = -(self.output_chunk_length + abs(self.shift_end + 1))
-        steps_back_end = steps_back_end if steps_back_end else None
+            steps_ahead_end = -(self.output_chunk_length + abs(self.shift_end + 1))
+        steps_ahead_end = steps_ahead_end if steps_ahead_end else None
 
         # case 1 & 2
         if steps_ahead_start >= 0:
-            return target.time_index[steps_ahead_start:steps_back_end]
+            return target.time_index[steps_ahead_start:steps_ahead_end]
 
         # case 3 - note: pandas' union() gives type hint warning, so we construct index directly from index class
         return target.time_index.__class__(
@@ -209,7 +215,7 @@ class PastCovariatesIndexGenerator(CovariatesIndexGenerator):
                 end=target.start_time() - target.freq,
                 length=abs(steps_ahead_start),
                 freq=target.freq,
-            ).union(target.time_index[:steps_back_end])
+            ).union(target.time_index[:steps_ahead_end])
         )
 
     def generate_inference_idx(
@@ -242,7 +248,7 @@ class PastCovariatesIndexGenerator(CovariatesIndexGenerator):
         if not self.shift_end:  # case 1
             n_steps = steps_back_end + 1 + max(0, n - self.output_chunk_length)
         else:  # case 2
-            shift_steps = abs(self.shift_end - self.shift_start) + 1
+            shift_steps = self.shift_end - self.shift_start + 1
             n_steps = shift_steps + max(0, n - self.output_chunk_length)
 
         return generate_index(
@@ -288,7 +294,78 @@ class FutureCovariatesIndexGenerator(CovariatesIndexGenerator):
             else:  # save the time step before start of target series
                 self.reference_index = (-1, target.start_time() - target.freq)
 
-        return covariates.time_index if covariates is not None else target.time_index
+        # the returned index depends on the following cases:
+        # case 0
+        #     user supplied covariates: simply return the covariate time index; guarantees that an exception is
+        #     raised if user supplied insufficient covariates
+        # case 1
+        #     only input_chunk_length and output_chunk_length are given: the complete covariate index is within the
+        #     target index; always True for all models except RegressionModels.
+        # case 2
+        #     covariate lags were given and (shift_start < 0 or shift_end < 0): historic part of future covariates.
+        #     if shift_end < there will only be the historic part of future covariates.
+        # case 3
+        #     covariate lags were given and (shift_start > 0 or shift_end > 0): future part of future covariates.
+        #     if shift_start > 0 there will only be the future part of future covariates.
+        # case 3
+        #     covariate lags were given (shift_start and shift_end are > 0) and shift_start <= input_chunk_length:
+        #     the complete covariate index is within the target index; can only be True for RegressionModels.
+
+        if covariates is not None:  # case 0
+            return covariates.time_index
+
+        if not self.shift_start:  # case 1
+            steps_ahead_start = 0
+        elif self.shift_start < 0:  # case 2
+            steps_ahead_start = self.input_chunk_length + self.shift_start
+        else:  # future part of future covariates
+            steps_ahead_start = self.input_chunk_length + self.shift_start - 1
+
+        if not self.shift_end:  # case 1
+            steps_ahead_end = 0
+        elif self.shift_end < 0:  # case 2
+            steps_ahead_end = -self.output_chunk_length + self.shift_end + 1
+        else:  # case 3
+            steps_ahead_end = -self.output_chunk_length + self.shift_end
+        steps_ahead_end = steps_ahead_end if steps_ahead_end else None
+
+        # case 1, or case 2 (if shift_end < 0)
+        if steps_ahead_start >= 0 and (
+            steps_ahead_end is None or steps_ahead_end <= -1
+        ):
+            return target.time_index[steps_ahead_start:steps_ahead_end]
+
+        # case 2 (if shift_end > 0), or case 3
+        # for `steps_ahead_start < 0` we add additional indices before the beginning of the target series
+        idx_start = (
+            generate_index(
+                end=target.start_time() - target.freq,
+                length=abs(steps_ahead_start),
+                freq=target.freq,
+            )
+            if steps_ahead_start < 0
+            else pd.Index([])
+        )
+
+        # if `steps_ahead_start >= 0` or `steps_ahead_end <= 0` we must extract a slice of the target series index
+        center_start = None if steps_ahead_start < 0 else steps_ahead_start
+        center_end = None if steps_ahead_end > 0 else steps_ahead_end
+        idx_center = target.time_index[center_start:center_end]
+
+        # for `steps_ahead_end > 0` we add additional indices after the end of the target series
+        idx_end = (
+            generate_index(
+                start=target.end_time() + target.freq,
+                length=abs(steps_ahead_end),
+                freq=target.freq,
+            )
+            if steps_ahead_end > 0
+            else pd.Index([])
+        )
+
+        # concatenate start, center, and end index
+        # note: pandas' union() returns type pd.Index(), so we construct index directly from index class
+        return target.time_index.__class__(idx_start.union(idx_center).union(idx_end))
 
     def generate_inference_idx(
         self, n: int, target: TimeSeries, covariates: Optional[TimeSeries] = None
@@ -300,14 +377,48 @@ class FutureCovariatesIndexGenerator(CovariatesIndexGenerator):
         """
         super().generate_inference_idx(n, target, covariates)
 
-        if covariates is not None:
+        # for prediction (`n` is given) with future covariates the returned index depends on the following cases:
+        # case 0
+        #     user supplied covariates: simply return the covariate time index; guarantees that an exception is
+        #     raised if user supplied insufficient covariates
+        # case 1
+        #     only input_chunk_length and output_chunk_length are given: we need to generate a time index that starts
+        #     `input_chunk_length - 1` before the end of `target` and ends `max(n, output_chunk_length)` after the
+        #     end of `target`; always True for all models except RegressionModels.
+        # case 2
+        #     covariate lags were given: we need to generate a time index that starts
+        #     1) `abs(shift_start) - 1` (if `shift_start < 0`), or
+        #     2) `-shift_start`
+        #     steps before the end of `target` and has a length of `shift_steps + max(0, n - output_chunk_length)`,
+        #     where `shift_steps` is
+        #     1) `shift_end - shift_start + 1` for `shift_end < 0`, or
+        #     2) `shift_end - shift_start` for `shift_end > 0`;
+        #     can only be True for RegressionModels.
+
+        if covariates is not None:  # case 0
             return covariates.time_index
+
+        if not self.shift_start:  # case 1
+            steps_back_end = self.input_chunk_length - 1
+        elif self.shift_start < 0:  # case 2
+            steps_back_end = abs(self.shift_start) - 1
         else:
-            return generate_index(
-                start=target.end_time() - target.freq * (self.input_chunk_length - 1),
-                length=self.input_chunk_length + max(n, self.output_chunk_length),
-                freq=target.freq,
-            )
+            steps_back_end = -self.shift_start
+
+        if not self.shift_end:  # case 1
+            n_steps = steps_back_end + 1 + max(n, self.output_chunk_length)
+        elif self.shift_end < 0:  # case 2
+            shift_steps = self.shift_end - self.shift_start + 1
+            n_steps = shift_steps + max(0, n - self.output_chunk_length)
+        else:
+            shift_steps = self.shift_end - self.shift_start
+            n_steps = shift_steps + max(0, n - self.output_chunk_length)
+
+        return generate_index(
+            start=target.end_time() - target.freq * steps_back_end,
+            length=n_steps,
+            freq=target.freq,
+        )
 
     @property
     def base_component_name(self) -> str:
