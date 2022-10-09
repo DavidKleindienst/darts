@@ -229,7 +229,13 @@ class CyclicTemporalEncoder(SingleEncoder):
 class PastCyclicEncoder(CyclicTemporalEncoder):
     """`CyclicEncoder`: Cyclic encoding of past covariates datetime attributes."""
 
-    def __init__(self, input_chunk_length, output_chunk_length, attribute):
+    def __init__(
+        self,
+        input_chunk_length: int,
+        output_chunk_length: int,
+        attribute: str,
+        covariates_lags: Optional[List[int]] = None,
+    ):
         """
         Parameters
         ----------
@@ -244,10 +250,15 @@ class PastCyclicEncoder(CyclicTemporalEncoder):
             https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.DatetimeIndex.html#pandas.DatetimeIndex.
             For more information, check out :meth:`datetime_attribute_timeseries()
             <darts.utils.timeseries_generation.datetime_attribute_timeseries>`
+        covariates_lags
+            Optionally, a list of integers representing the past covariate lags used for Darts' RegressionModels.
+            Only accepts lag values <= -1.
         """
         super().__init__(
             index_generator=PastCovariatesIndexGenerator(
-                input_chunk_length, output_chunk_length
+                input_chunk_length,
+                output_chunk_length,
+                covariates_lags=covariates_lags,
             ),
             attribute=attribute,
         )
@@ -256,7 +267,13 @@ class PastCyclicEncoder(CyclicTemporalEncoder):
 class FutureCyclicEncoder(CyclicTemporalEncoder):
     """`CyclicEncoder`: Cyclic encoding of future covariates datetime attributes."""
 
-    def __init__(self, input_chunk_length, output_chunk_length, attribute):
+    def __init__(
+        self,
+        input_chunk_length: int,
+        output_chunk_length: int,
+        attribute: str,
+        covariates_lags: Optional[List[int]] = None,
+    ):
         """
         Parameters
         ----------
@@ -271,10 +288,14 @@ class FutureCyclicEncoder(CyclicTemporalEncoder):
             https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.DatetimeIndex.html#pandas.DatetimeIndex.
             For more information, check out :meth:`datetime_attribute_timeseries()
             <darts.utils.timeseries_generation.datetime_attribute_timeseries>`
+        covariates_lags
+            Optionally, a list of integers representing the future covariate lags used for Darts' RegressionModels.
         """
         super().__init__(
             index_generator=FutureCovariatesIndexGenerator(
-                input_chunk_length, output_chunk_length
+                input_chunk_length,
+                output_chunk_length,
+                covariates_lags=covariates_lags,
             ),
             attribute=attribute,
         )
@@ -330,7 +351,13 @@ class DatetimeAttributeEncoder(SingleEncoder):
 class PastDatetimeAttributeEncoder(DatetimeAttributeEncoder):
     """Datetime attribute encoder for past covariates."""
 
-    def __init__(self, input_chunk_length, output_chunk_length, attribute):
+    def __init__(
+        self,
+        input_chunk_length: int,
+        output_chunk_length: int,
+        attribute: str,
+        covariates_lags: Optional[List[int]] = None,
+    ):
         """
         Parameters
         ----------
@@ -345,10 +372,15 @@ class PastDatetimeAttributeEncoder(DatetimeAttributeEncoder):
             https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.DatetimeIndex.html#pandas.DatetimeIndex.
             For more information, check out :meth:`datetime_attribute_timeseries()
             <darts.utils.timeseries_generation.datetime_attribute_timeseries>`
+        covariates_lags
+            Optionally, a list of integers representing the past covariate lags used for Darts' RegressionModels.
+            Only accepts lag values <= -1.
         """
         super().__init__(
             index_generator=PastCovariatesIndexGenerator(
-                input_chunk_length, output_chunk_length
+                input_chunk_length,
+                output_chunk_length,
+                covariates_lags=covariates_lags,
             ),
             attribute=attribute,
         )
@@ -357,7 +389,13 @@ class PastDatetimeAttributeEncoder(DatetimeAttributeEncoder):
 class FutureDatetimeAttributeEncoder(DatetimeAttributeEncoder):
     """Datetime attribute encoder for future covariates."""
 
-    def __init__(self, input_chunk_length, output_chunk_length, attribute):
+    def __init__(
+        self,
+        input_chunk_length: int,
+        output_chunk_length: int,
+        attribute: str,
+        covariates_lags: Optional[List[int]] = None,
+    ):
         """
         Parameters
         ----------
@@ -372,10 +410,14 @@ class FutureDatetimeAttributeEncoder(DatetimeAttributeEncoder):
             https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.DatetimeIndex.html#pandas.DatetimeIndex.
             For more information, check out :meth:`datetime_attribute_timeseries()
             <darts.utils.timeseries_generation.datetime_attribute_timeseries>`
+        covariates_lags
+            Optionally, a list of integers representing the future covariate lags used for Darts' RegressionModels.
         """
         super().__init__(
             index_generator=FutureCovariatesIndexGenerator(
-                input_chunk_length, output_chunk_length
+                input_chunk_length,
+                output_chunk_length,
+                covariates_lags=covariates_lags,
             ),
             attribute=attribute,
         )
@@ -478,7 +520,11 @@ class PastIntegerIndexEncoder(IntegerIndexEncoder):
     """
 
     def __init__(
-        self, input_chunk_length: int, output_chunk_length: int, attribute: str
+        self,
+        input_chunk_length: int,
+        output_chunk_length: int,
+        attribute: str,
+        covariates_lags: Optional[List[int]] = None,
     ):
         """
         Parameters
@@ -492,6 +538,9 @@ class PastIntegerIndexEncoder(IntegerIndexEncoder):
             and the train target series will be used as a reference to set the 0-index. If 'relative', the generated
             encoded values will range from (-inf, inf) and the train target series end time will be used as a reference
             to evaluate the relative index positions.
+        covariates_lags
+            Optionally, a list of integers representing the past covariate lags used for Darts' RegressionModels.
+            Only accepts lag values <= -1.
         """
         reference_index_type = (
             ReferenceIndexType.PREDICTION
@@ -504,6 +553,7 @@ class PastIntegerIndexEncoder(IntegerIndexEncoder):
                 input_chunk_length,
                 output_chunk_length,
                 reference_index_type=reference_index_type,
+                covariates_lags=covariates_lags,
             ),
             attribute=attribute,
         )
@@ -515,7 +565,11 @@ class FutureIntegerIndexEncoder(IntegerIndexEncoder):
     """
 
     def __init__(
-        self, input_chunk_length: int, output_chunk_length: int, attribute: str
+        self,
+        input_chunk_length: int,
+        output_chunk_length: int,
+        attribute: str,
+        covariates_lags: Optional[List[int]] = None,
     ):
         """
         Parameters
@@ -529,6 +583,8 @@ class FutureIntegerIndexEncoder(IntegerIndexEncoder):
             and the train target series will be used as a reference to set the 0-index. If 'relative', the generated
             encoded values will range from (-inf, inf) and the train target series end time will be used as a reference
             to evaluate the relative index positions.
+        covariates_lags
+            Optionally, a list of integers representing the future covariate lags used for Darts' RegressionModels.
         """
         reference_index_type = (
             ReferenceIndexType.PREDICTION
@@ -541,6 +597,7 @@ class FutureIntegerIndexEncoder(IntegerIndexEncoder):
                 input_chunk_length,
                 output_chunk_length,
                 reference_index_type=reference_index_type,
+                covariates_lags=covariates_lags,
             ),
             attribute=attribute,
         )
@@ -609,7 +666,8 @@ class PastCallableIndexEncoder(CallableIndexEncoder):
         self,
         input_chunk_length: int,
         output_chunk_length: int,
-        attribute: Union[str, Callable],
+        attribute: Callable,
+        covariates_lags: Optional[List[int]] = None,
     ):
         """
         Parameters
@@ -624,10 +682,15 @@ class PastCallableIndexEncoder(CallableIndexEncoder):
             An example for a correct `attribute` for `index` of type pd.DatetimeIndex:
             ``attribute = lambda index: (index.year - 1950) / 50``. And for pd.RangeIndex:
             ``attribute = lambda index: (index - 1950) / 50``
+        covariates_lags
+            Optionally, a list of integers representing the past covariate lags used for Darts' RegressionModels.
+            Only accepts lag values <= -1.
         """
         super().__init__(
             index_generator=PastCovariatesIndexGenerator(
-                input_chunk_length, output_chunk_length
+                input_chunk_length,
+                output_chunk_length,
+                covariates_lags=covariates_lags,
             ),
             attribute=attribute,
         )
@@ -642,7 +705,8 @@ class FutureCallableIndexEncoder(CallableIndexEncoder):
         self,
         input_chunk_length: int,
         output_chunk_length: int,
-        attribute: Union[str, Callable],
+        attribute: Callable,
+        covariates_lags: Optional[List[int]] = None,
     ):
         """
         Parameters
@@ -657,11 +721,15 @@ class FutureCallableIndexEncoder(CallableIndexEncoder):
             An example for a correct `attribute` for `index` of type pd.DatetimeIndex:
             ``attribute = lambda index: (index.year - 1950) / 50``. And for pd.RangeIndex:
             ``attribute = lambda index: (index - 1950) / 50``
+        covariates_lags
+            Optionally, a list of integers representing the future covariate lags used for Darts' RegressionModels.
         """
 
         super().__init__(
             index_generator=FutureCovariatesIndexGenerator(
-                input_chunk_length, output_chunk_length
+                input_chunk_length,
+                output_chunk_length,
+                covariates_lags=covariates_lags,
             ),
             attribute=attribute,
         )
@@ -679,6 +747,8 @@ class SequentialEncoder(Encoder):
         output_chunk_length: int,
         takes_past_covariates: bool = False,
         takes_future_covariates: bool = False,
+        past_covariates_lags: Optional[List[int]] = None,
+        future_covariates_lags: Optional[List[int]] = None,
     ) -> None:
 
         """
@@ -741,15 +811,21 @@ class SequentialEncoder(Encoder):
         Parameters
         ----------
         add_encoders
-            The parameters used at `TorchForecastingModel` model creation.
+            A dictionary with the encoder settings.
         input_chunk_length
             The length of the emitted past series.
         output_chunk_length
             The length of the emitted future series.
         takes_past_covariates
-            Whether or not the `TrainingDataset` takes past covariates
+            Whether to accept past covariates
         takes_future_covariates
-            Whether or not the `TrainingDataset` takes past covariates
+            Whether to accept future covariates
+        past_covariates_lags
+            Optionally, a list of integers representing the past covariate lags used for Darts' RegressionModels.
+            Only accepts integer lag values <= -1.
+        future_covariates_lags
+            Optionally, a list of integers representing the future covariate lags used for Darts' RegressionModels.
+            Accepts all integer values.
         """
 
         super().__init__()
@@ -759,6 +835,8 @@ class SequentialEncoder(Encoder):
         self.encoding_available = False
         self.takes_past_covariates = takes_past_covariates
         self.takes_future_covariates = takes_future_covariates
+        self.past_covariates_lags = past_covariates_lags
+        self.future_covariates_lags = future_covariates_lags
 
         # encoders
         self._past_encoders: List[SingleEncoder] = []
@@ -796,9 +874,9 @@ class SequentialEncoder(Encoder):
         future_covariates
             Optionally, the future covariates used for training.
         encode_past
-            Whether or not to apply encoders for past covariates
+            Whether to apply encoders for past covariates
         encode_future
-            Whether or not to apply encoders for future covariates
+            Whether to apply encoders for future covariates
         Returns
         -------
         Tuple[past_covariates, future_covariates]
@@ -860,9 +938,9 @@ class SequentialEncoder(Encoder):
         future_covariates
             Optionally, the future covariates used for training.
         encode_past
-            Whether or not to apply encoders for past covariates
+            Whether to apply encoders for past covariates
         encode_future
-            Whether or not to apply encoders for future covariates
+            Whether to apply encoders for future covariates
 
         Returns
         -------
@@ -1079,13 +1157,19 @@ class SequentialEncoder(Encoder):
 
         self._past_encoders = [
             self.encoder_map[enc_id](
-                self.input_chunk_length, self.output_chunk_length, attr
+                self.input_chunk_length,
+                self.output_chunk_length,
+                attribute=attr,
+                covariates_lags=self.past_covariates_lags,
             )
             for enc_id, attr in past_encoders
         ]
         self._future_encoders = [
             self.encoder_map[enc_id](
-                self.input_chunk_length, self.output_chunk_length, attr
+                self.input_chunk_length,
+                self.output_chunk_length,
+                attribute=attr,
+                covariates_lags=self.future_covariates_lags,
             )
             for enc_id, attr in future_encoders
         ]

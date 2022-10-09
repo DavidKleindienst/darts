@@ -45,7 +45,7 @@ class CovariatesIndexGenerator(ABC):
             If a reference index should be saved, set `reference_index` to one of `(ReferenceIndexType.PREDICTION,
             ReferenceIndexType.START)`
         covariates_lags
-            Optionally, a list of covariate lags used for Darts' RegressionModels.
+            Optionally, a list of covariates lags used for Darts' RegressionModels.
         """
         self.input_chunk_length = input_chunk_length
         self.output_chunk_length = output_chunk_length
