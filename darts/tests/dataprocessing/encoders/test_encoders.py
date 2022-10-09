@@ -845,7 +845,10 @@ class EncoderTestCase(DartsBaseTestClass):
 
         # ===> test absolute position encoder <===
         encoder_params = {
-            "custom": {"past": [lambda index: index.year, lambda index: index.year - 1]}
+            "custom": {
+                "past": [lambda index: index.year, lambda index: index.year - 1],
+                "future": [lambda index: index.year],
+            }
         }
         encs = SequentialEncoder(
             add_encoders=encoder_params,
@@ -855,9 +858,34 @@ class EncoderTestCase(DartsBaseTestClass):
             takes_future_covariates=True,
         )
 
-        t1, _ = encs.encode_train(ts)
-        self.assertTrue((ts.time_index.year.values == t1.values()[:, 0]).all())
-        self.assertTrue((ts.time_index.year.values - 1 == t1.values()[:, 1]).all())
+        # train set
+        pc, fc = encs.encode_train(ts)
+        # past covariates
+        np.testing.assert_array_equal(
+            ts[:-output_chunk_length].time_index.year.values, pc.values()[:, 0]
+        )
+        np.testing.assert_array_equal(
+            ts[:-output_chunk_length].time_index.year.values - 1, pc.values()[:, 1]
+        )
+        # future covariates
+        np.testing.assert_array_equal(ts.time_index.year.values, fc.values()[:, 0])
+
+        # inference set
+        pc, fc = encs.encode_inference(n=12, target=ts)
+        year_index = tg.generate_index(
+            start=ts.end_time() - ts.freq * (input_chunk_length - 1),
+            length=24,
+            freq=ts.freq,
+        )
+        # past covariates
+        np.testing.assert_array_equal(
+            year_index[:-output_chunk_length].year.values, pc.values()[:, 0]
+        )
+        np.testing.assert_array_equal(
+            year_index[:-output_chunk_length].year.values - 1, pc.values()[:, 1]
+        )
+        # future covariates
+        np.testing.assert_array_equal(year_index.year.values, fc.values()[:, 0])
 
     def test_transformer(self):
         ts1 = tg.linear_timeseries(
@@ -1063,7 +1091,15 @@ class EncoderTestCase(DartsBaseTestClass):
                 encoder.encode_train(ts, cov, merge_covariates=merge_covariates)
             )
 
-        self.assertTrue(encoded == result)
+        expected_result = result
+        # when user does not give covariates, and a past covariate encoder is used, the generate train covariates are
+        # `output_chunk_length` steps shorter than the target series
+        if covariates[0] is None and isinstance(
+            encoder.index_generator, PastCovariatesIndexGenerator
+        ):
+            expected_result = [res[: -self.output_chunk_length] for res in result]
+
+        self.assertTrue(encoded == expected_result)
 
     def helper_test_encoder_single_inference(
         self,
