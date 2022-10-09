@@ -1160,20 +1160,20 @@ class RegressionModelsTestCase(DartsBaseTestClass):
         )
         covs_generated_train = model.encoders.encode_train(target=target_series)
         covs_generated_infer = model.encoders.encode_inference(
-            n=model._get_encoders_n(n), target=target_series
+            n=n, target=target_series
         )
 
         refer_past, refer_future = covs_reference[0], covs_reference[1]
         train_past, train_future = covs_generated_train[0], covs_generated_train[1]
         infer_past, infer_future = covs_generated_infer[0], covs_generated_infer[1]
 
-        def generate_expected_times(model, target_series, n=0) -> dict:
+        def generate_expected_times(model, target_series, n_predict=0) -> dict:
             """generates expected start and end times for the corresponding covariates."""
             times = {"pc_start": [], "pc_end": [], "fc_start": [], "fc_end": []}
             max_past_lag = abs(min(min(model.lags.get("past", [0])), 0))
             max_future_lag = max(max(model.lags.get("future", [0])), 0)
             for ts in target_series:
-                if not n:
+                if not n_predict:
                     times["pc_start"].append(ts.start_time())
                     times["pc_end"].append(
                         ts.end_time() - ts.freq * model.encoders.output_chunk_length
@@ -1185,17 +1185,17 @@ class RegressionModelsTestCase(DartsBaseTestClass):
                     times["pc_start"].append(
                         ts.end_time() - ts.freq * (max_past_lag - 1)
                     )
-                    times["pc_end"].append(ts.end_time() + ts.freq * (n - 1))
+                    times["pc_end"].append(ts.end_time() + ts.freq * (n_predict - 1))
                     times["fc_start"].append(
                         ts.end_time() - ts.freq * (max_past_lag - 1)
                     )
                     times["fc_end"].append(
-                        ts.end_time() + ts.freq * (n + max_future_lag)
+                        ts.end_time() + ts.freq * (n_predict + max_future_lag)
                     )
             return times
 
         t_train = generate_expected_times(model, target_series)
-        t_infer = generate_expected_times(model, target_series, n=n)
+        t_infer = generate_expected_times(model, target_series, n_predict=n)
 
         if train_past is None:
             assert infer_past is None and refer_past is None
