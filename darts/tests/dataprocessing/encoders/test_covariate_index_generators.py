@@ -199,69 +199,51 @@ class CovariatesIndexGeneratorTestCase(DartsBaseTestClass):
         # one lag is >= 0 (not possible for past covariates)
         with pytest.raises(ValueError):
             _ = PastCovariatesIndexGenerator(
-                1, 1, min_covariates_lag=1, max_covariates_lag=-1
+                1,
+                1,
+                covariates_lags=[-1, 1],
             )
         with pytest.raises(ValueError):
             _ = PastCovariatesIndexGenerator(
-                1, 1, min_covariates_lag=-1, max_covariates_lag=1
-            )
-        # max lag is smaller than min lag
-        with pytest.raises(ValueError):
-            _ = PastCovariatesIndexGenerator(
-                1, 1, min_covariates_lag=-1, max_covariates_lag=-2
-            )
-        # one lag is given, the other isn't
-        with pytest.raises(ValueError):
-            _ = PastCovariatesIndexGenerator(
-                1, 1, min_covariates_lag=None, max_covariates_lag=-1
-            )
-        with pytest.raises(ValueError):
-            _ = PastCovariatesIndexGenerator(
-                1, 1, min_covariates_lag=-1, max_covariates_lag=None
+                1,
+                1,
+                covariates_lags=[0, -1],
             )
 
         min_lag, max_lag = -2, -1
         ig = PastCovariatesIndexGenerator(
-            1, 1, min_covariates_lag=min_lag, max_covariates_lag=max_lag
+            1,
+            1,
+            covariates_lags=[min_lag, max_lag],
         )
         self.assertEqual(ig.shift_start, min_lag)
         self.assertEqual(ig.shift_end, max_lag)
 
         min_lag, max_lag = -1, -1
         ig = PastCovariatesIndexGenerator(
-            1, 1, min_covariates_lag=min_lag, max_covariates_lag=max_lag
+            1,
+            1,
+            covariates_lags=[min_lag, max_lag],
         )
         self.assertEqual(ig.shift_start, min_lag)
         self.assertEqual(ig.shift_end, max_lag)
 
     def test_future_index_generator_creation(self):
-        # ==> test failures
-        # max lag is smaller than min lag
-        with pytest.raises(ValueError):
-            _ = FutureCovariatesIndexGenerator(
-                1, 1, min_covariates_lag=-1, max_covariates_lag=-2
-            )
-        # one lag is given, the other isn't
-        with pytest.raises(ValueError):
-            _ = FutureCovariatesIndexGenerator(
-                1, 1, min_covariates_lag=None, max_covariates_lag=-1
-            )
-        with pytest.raises(ValueError):
-            _ = FutureCovariatesIndexGenerator(
-                1, 1, min_covariates_lag=-1, max_covariates_lag=None
-            )
-
         # future covariates index generator (ig) can technically be used like a past covariates ig
         min_lag, max_lag = -2, -1
         ig = FutureCovariatesIndexGenerator(
-            1, 1, min_covariates_lag=min_lag, max_covariates_lag=max_lag
+            1,
+            1,
+            covariates_lags=[min_lag, max_lag],
         )
         self.assertEqual(ig.shift_start, min_lag)
         self.assertEqual(ig.shift_end, max_lag)
 
         min_lag, max_lag = -1, -1
         ig = FutureCovariatesIndexGenerator(
-            1, 1, min_covariates_lag=min_lag, max_covariates_lag=max_lag
+            1,
+            1,
+            covariates_lags=[min_lag, max_lag],
         )
         self.assertEqual(ig.shift_start, min_lag)
         self.assertEqual(ig.shift_end, max_lag)
@@ -269,7 +251,9 @@ class CovariatesIndexGeneratorTestCase(DartsBaseTestClass):
         # different to past covariates ig, future ig can take positive and negative lags
         min_lag, max_lag = -2, 1
         ig = FutureCovariatesIndexGenerator(
-            1, 1, min_covariates_lag=min_lag, max_covariates_lag=max_lag
+            1,
+            1,
+            covariates_lags=[min_lag, max_lag],
         )
         self.assertEqual(ig.shift_start, min_lag)
         # when `max_lag` >= 0, we add one step to `shift_end`, as future lags start at 0 meaning first prediction step
@@ -293,7 +277,9 @@ class CovariatesIndexGeneratorTestCase(DartsBaseTestClass):
             self, icl, ocl, min_lag, max_lag, start_expected, end_expected
         ):
             idxg = PastCovariatesIndexGenerator(
-                icl, ocl, min_covariates_lag=min_lag, max_covariates_lag=max_lag
+                icl,
+                ocl,
+                covariates_lags=[min_lag, max_lag],
             )
             idx = idxg.generate_train_idx(target, None)
             self.assertEqual(idx[0], pd.Timestamp(start_expected, freq=freq))
@@ -398,7 +384,9 @@ class CovariatesIndexGeneratorTestCase(DartsBaseTestClass):
             self, icl, ocl, min_lag, max_lag, start_expected, end_expected
         ):
             idxg = FutureCovariatesIndexGenerator(
-                icl, ocl, min_covariates_lag=min_lag, max_covariates_lag=max_lag
+                icl,
+                ocl,
+                covariates_lags=[min_lag, max_lag],
             )
             idx = idxg.generate_train_idx(target, None)
             self.assertEqual(idx[0], pd.Timestamp(start_expected, freq=freq))

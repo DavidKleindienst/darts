@@ -1175,7 +1175,9 @@ class RegressionModelsTestCase(DartsBaseTestClass):
             for ts in target_series:
                 if not n:
                     times["pc_start"].append(ts.start_time())
-                    times["pc_end"].append(ts.end_time())
+                    times["pc_end"].append(
+                        ts.end_time() - ts.freq * model.encoders.output_chunk_length
+                    )
                     times["fc_start"].append(ts.start_time())
                     times["fc_end"].append(ts.end_time())
                 else:

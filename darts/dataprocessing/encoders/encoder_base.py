@@ -32,8 +32,7 @@ class CovariatesIndexGenerator(ABC):
         input_chunk_length: int,
         output_chunk_length: int,
         reference_index_type: ReferenceIndexType = ReferenceIndexType.NONE,
-        min_covariates_lag: Optional[int] = None,
-        max_covariates_lag: Optional[int] = None,
+        covariates_lags: Optional[List[int]] = None,
     ):
         """
         Parameters
@@ -42,9 +41,11 @@ class CovariatesIndexGenerator(ABC):
             The length of the emitted past series.
         output_chunk_length
             The length of the emitted future series.
-        reference_index
+        reference_index_type
             If a reference index should be saved, set `reference_index` to one of `(ReferenceIndexType.PREDICTION,
             ReferenceIndexType.START)`
+        covariates_lags
+            Optionally, a list of covariate lags used for Darts' RegressionModels.
         """
         self.input_chunk_length = input_chunk_length
         self.output_chunk_length = output_chunk_length
@@ -53,6 +54,12 @@ class CovariatesIndexGenerator(ABC):
         self.reference_index: Optional[Tuple[int, Union[pd.Timestamp, int]]] = None
 
         # check lags validity
+        min_covariates_lag = (
+            min(covariates_lags) if covariates_lags is not None else None
+        )
+        max_covariates_lag = (
+            max(covariates_lags) if covariates_lags is not None else None
+        )
         self._verify_lags(min_covariates_lag, max_covariates_lag)
         if min_covariates_lag is not None:
             # for lags < 0 we need to take `n` steps backwards from past and/or historic future covariates
