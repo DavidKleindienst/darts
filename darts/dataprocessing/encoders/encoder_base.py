@@ -414,11 +414,11 @@ class FutureCovariatesIndexGenerator(CovariatesIndexGenerator):
 
         if not self.shift_end:  # case 1
             n_steps = steps_back_end + 1 + max(n, self.output_chunk_length)
-        elif self.shift_end < 0:  # case 2
-            shift_steps = self.shift_end - self.shift_start + 1
-            n_steps = shift_steps + max(0, n - self.output_chunk_length)
-        else:
-            shift_steps = self.shift_end - self.shift_start
+        else:  # case 2
+            if self.shift_end < 0:
+                shift_steps = (self.shift_end + 1) + steps_back_end + 1
+            else:
+                shift_steps = self.shift_end + steps_back_end + 1
             n_steps = shift_steps + max(0, n - self.output_chunk_length)
 
         return generate_index(
