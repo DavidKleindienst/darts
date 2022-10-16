@@ -4,7 +4,6 @@ Encoder Base Classes
 """
 
 from abc import ABC, abstractmethod
-from enum import Enum, auto
 from typing import List, Optional, Sequence, Tuple, Union
 
 import numpy as np
@@ -20,18 +19,11 @@ EncoderOutputType = Optional[Union[Sequence[TimeSeries], List[TimeSeries]]]
 logger = get_logger(__name__)
 
 
-class ReferenceIndexType(Enum):
-    PREDICTION = auto()
-    START = auto()
-    NONE = auto()
-
-
 class CovariatesIndexGenerator(ABC):
     def __init__(
         self,
         input_chunk_length: int,
         output_chunk_length: int,
-        reference_index_type: ReferenceIndexType = ReferenceIndexType.NONE,
         covariates_lags: Optional[List[int]] = None,
     ):
         """
@@ -41,17 +33,11 @@ class CovariatesIndexGenerator(ABC):
             The length of the emitted past series.
         output_chunk_length
             The length of the emitted future series.
-        reference_index_type
-            If a reference index should be saved, set `reference_index` to one of `(ReferenceIndexType.PREDICTION,
-            ReferenceIndexType.START)`
         covariates_lags
             Optionally, a list of covariates lags used for Darts' RegressionModels.
         """
         self.input_chunk_length = input_chunk_length
         self.output_chunk_length = output_chunk_length
-
-        self.reference_index_type = reference_index_type
-        self.reference_index: Optional[Tuple[int, Union[pd.Timestamp, int]]] = None
 
         # check lags validity
         min_covariates_lag = (
