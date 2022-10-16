@@ -87,9 +87,9 @@ class CovariatesIndexGenerator(ABC):
     @abstractmethod
     def generate_train_idx(
         self, target: TimeSeries, covariates: Optional[TimeSeries] = None
-    ) -> SupportedIndex:
+    ) -> Tuple[SupportedIndex, pd.Timestamp]:
         """
-        Implement a method that extracts the required covariates index for training.
+        Generates/extracts time index (or integer index) for train set.
 
         Parameters
         ----------
@@ -103,9 +103,9 @@ class CovariatesIndexGenerator(ABC):
     @abstractmethod
     def generate_inference_idx(
         self, n: int, target: TimeSeries, covariates: Optional[TimeSeries] = None
-    ) -> SupportedIndex:
+    ) -> Tuple[SupportedIndex, pd.Timestamp]:
         """
-        Implement a method that extracts the required covariates index for prediction.
+        Generates/extracts time index (or integer index) for inference set.
 
         Parameters
         ----------
@@ -170,19 +170,9 @@ class PastCovariatesIndexGenerator(CovariatesIndexGenerator):
 
     def generate_train_idx(
         self, target: TimeSeries, covariates: Optional[TimeSeries] = None
-    ) -> SupportedIndex:
+    ) -> Tuple[SupportedIndex, pd.Timestamp]:
 
         super().generate_train_idx(target, covariates)
-
-        # save a reference index if specified
-        if (
-            self.reference_index_type is not ReferenceIndexType.NONE
-            and self.reference_index is None
-        ):
-            if self.reference_index_type is ReferenceIndexType.PREDICTION:
-                self.reference_index = (len(target) - 1, target.end_time())
-            else:  # save the time step before start of target series
-                self.reference_index = (-1, target.start_time() - target.freq)
 
         # the returned index depends on the following cases:
         # case 0
@@ -198,8 +188,9 @@ class PastCovariatesIndexGenerator(CovariatesIndexGenerator):
         #     covariate lags were given (shift_start and shift_end are < 0) and shift_start > input_chunk_length:
         #     we need to add indices before the beginning of the target series; can only be True for RegressionModels.
 
+        target_end = target.end_time()
         if covariates is not None:  # case 0
-            return covariates.time_index
+            return covariates.time_index, target_end
 
         if not self.shift_start:  # case 1
             steps_ahead_start = 0
@@ -214,20 +205,25 @@ class PastCovariatesIndexGenerator(CovariatesIndexGenerator):
 
         # case 1 & 2
         if steps_ahead_start >= 0:
-            return target.time_index[steps_ahead_start:steps_ahead_end]
+            return target.time_index[steps_ahead_start:steps_ahead_end], target_end
 
         # case 3 - note: pandas' union() gives type hint warning, so we construct index directly from index class
-        return target.time_index.__class__(
-            generate_index(
-                end=target.start_time() - target.freq,
-                length=abs(steps_ahead_start),
-                freq=target.freq,
-            ).union(target.time_index[:steps_ahead_end])
+        return (
+            target.time_index.__class__(
+                generate_index(
+                    end=target.start_time() - target.freq,
+                    length=abs(steps_ahead_start),
+                    freq=target.freq,
+                ).union(target.time_index[:steps_ahead_end])
+            ),
+            target_end,
         )
 
     def generate_inference_idx(
         self, n: int, target: TimeSeries, covariates: Optional[TimeSeries] = None
-    ) -> SupportedIndex:
+    ) -> Tuple[SupportedIndex, pd.Timestamp]:
+
+        super().generate_inference_idx(n, target, covariates)
 
         # for prediction (`n` is given) with past covariates the returned index depends on the following cases:
         # case 0
@@ -243,9 +239,9 @@ class PastCovariatesIndexGenerator(CovariatesIndexGenerator):
         #     `shift_steps + max(0, n - output_chunk_length)`, where `shift_steps` is the number of time steps between
         #     `shift_start` and `shift_end`; can only be True for RegressionModels.
 
-        super().generate_inference_idx(n, target, covariates)
+        target_end = target.end_time()
         if covariates is not None:  # case 0
-            return covariates.time_index
+            return covariates.time_index, target_end
 
         if not self.shift_start:  # case 1
             steps_back_end = self.input_chunk_length - 1
@@ -258,10 +254,13 @@ class PastCovariatesIndexGenerator(CovariatesIndexGenerator):
             shift_steps = self.shift_end - self.shift_start + 1
             n_steps = shift_steps + max(0, n - self.output_chunk_length)
 
-        return generate_index(
-            start=target.end_time() - target.freq * steps_back_end,
-            length=n_steps,
-            freq=target.freq,
+        return (
+            generate_index(
+                start=target.end_time() - target.freq * steps_back_end,
+                length=n_steps,
+                freq=target.freq,
+            ),
+            target_end,
         )
 
     @property
@@ -284,22 +283,9 @@ class FutureCovariatesIndexGenerator(CovariatesIndexGenerator):
 
     def generate_train_idx(
         self, target: TimeSeries, covariates: Optional[TimeSeries] = None
-    ) -> SupportedIndex:
-        """For training (when `n` is `None`) we can simply use the future covariates (if available) or target as
-        reference to extract the time index.
-        """
+    ) -> Tuple[SupportedIndex, pd.Timestamp]:
 
         super().generate_train_idx(target, covariates)
-
-        # save a reference index if specified
-        if (
-            self.reference_index_type is not ReferenceIndexType.NONE
-            and self.reference_index is None
-        ):
-            if self.reference_index_type is ReferenceIndexType.PREDICTION:
-                self.reference_index = (len(target) - 1, target.end_time())
-            else:  # save the time step before start of target series
-                self.reference_index = (-1, target.start_time() - target.freq)
 
         # the returned index depends on the following cases:
         # case 0
@@ -317,9 +303,10 @@ class FutureCovariatesIndexGenerator(CovariatesIndexGenerator):
         # case 3
         #     covariate lags were given (shift_start and shift_end are > 0) and shift_start <= input_chunk_length:
         #     the complete covariate index is within the target index; can only be True for RegressionModels.
+        target_end = target.end_time()
 
         if covariates is not None:  # case 0
-            return covariates.time_index
+            return covariates.time_index, target_end
 
         if not self.shift_start:  # case 1
             steps_ahead_start = 0
@@ -340,7 +327,7 @@ class FutureCovariatesIndexGenerator(CovariatesIndexGenerator):
         if steps_ahead_start >= 0 and (
             steps_ahead_end is None or steps_ahead_end <= -1
         ):
-            return target.time_index[steps_ahead_start:steps_ahead_end]
+            return target.time_index[steps_ahead_start:steps_ahead_end], target_end
 
         # case 2 (if shift_end > 0), or case 3
         # for `steps_ahead_start < 0` we add additional indices before the beginning of the target series
@@ -372,16 +359,15 @@ class FutureCovariatesIndexGenerator(CovariatesIndexGenerator):
 
         # concatenate start, center, and end index
         # note: pandas' union() returns type pd.Index(), so we construct index directly from index class
-        return target.time_index.__class__(idx_start.union(idx_center).union(idx_end))
+        return (
+            target.time_index.__class__(idx_start.union(idx_center).union(idx_end)),
+            target_end,
+        )
 
     def generate_inference_idx(
         self, n: int, target: TimeSeries, covariates: Optional[TimeSeries] = None
-    ) -> SupportedIndex:
-        """For prediction (`n` is given) with future covariates we have to distinguish between two cases:
-        1)  If future covariates are given, we can use them as reference
-        2)  If future covariates are missing, we need to generate a time index that starts `input_chunk_length`
-            before the end of `target` and ends `max(n, output_chunk_length)` after the end of `target`
-        """
+    ) -> Tuple[SupportedIndex, pd.Timestamp]:
+
         super().generate_inference_idx(n, target, covariates)
 
         # for prediction (`n` is given) with future covariates the returned index depends on the following cases:
@@ -402,8 +388,9 @@ class FutureCovariatesIndexGenerator(CovariatesIndexGenerator):
         #     2) `shift_end - shift_start` for `shift_end > 0`;
         #     can only be True for RegressionModels.
 
+        target_end = target.end_time()
         if covariates is not None:  # case 0
-            return covariates.time_index
+            return covariates.time_index, target_end
 
         if not self.shift_start:  # case 1
             steps_back_end = self.input_chunk_length - 1
@@ -421,10 +408,13 @@ class FutureCovariatesIndexGenerator(CovariatesIndexGenerator):
                 shift_steps = self.shift_end + steps_back_end + 1
             n_steps = shift_steps + max(0, n - self.output_chunk_length)
 
-        return generate_index(
-            start=target.end_time() - target.freq * steps_back_end,
-            length=n_steps,
-            freq=target.freq,
+        return (
+            generate_index(
+                start=target.end_time() - target.freq * steps_back_end,
+                length=n_steps,
+                freq=target.freq,
+            ),
+            target_end,
         )
 
     @property
@@ -569,14 +559,17 @@ class SingleEncoder(Encoder, ABC):
         self._components = pd.Index([])
 
     @abstractmethod
-    def _encode(self, index: SupportedIndex, dtype: np.dtype) -> TimeSeries:
+    def _encode(
+        self, index: SupportedIndex, target_end: pd.Timestamp, dtype: np.dtype
+    ) -> TimeSeries:
         """Single Encoders must implement an _encode() method to encode the index.
 
         Parameters
         ----------
         index
             The index generated from `self.index_generator` for either the train or inference dataset.
-            :param dtype:
+        target_end
+            The end time of the target series.
         dtype
             The dtype of the encoded index
         """
@@ -606,8 +599,8 @@ class SingleEncoder(Encoder, ABC):
         covariates = self._drop_encoded_components(covariates, self.components)
 
         # generate index and encodings
-        index = self.index_generator.generate_train_idx(target, covariates)
-        encoded = self._encode(index, target.dtype)
+        index, target_end = self.index_generator.generate_train_idx(target, covariates)
+        encoded = self._encode(index, target_end, target.dtype)
 
         # optionally, merge encodings with original `covariates` series
         encoded = (
@@ -661,8 +654,10 @@ class SingleEncoder(Encoder, ABC):
         covariates = self._drop_encoded_components(covariates, self.components)
 
         # generate index and encodings
-        index = self.index_generator.generate_inference_idx(n, target, covariates)
-        encoded = self._encode(index, target.dtype)
+        index, target_end = self.index_generator.generate_inference_idx(
+            n, target, covariates
+        )
+        encoded = self._encode(index, target_end, target.dtype)
 
         # optionally, merge encodings with original `covariates` series
         encoded = (
@@ -750,14 +745,24 @@ class SequentialEncoderTransformer:
         """
         if not self.fit_called:
             self._update_mask(covariates)
-            transformed = self.transformer.fit_transform(
-                covariates, component_mask=self.transform_mask
-            )
+            if any(self.transform_mask):
+                # fit the transformer on all encoded values by concatenating multi-series input encodings
+                self.transformer.fit(
+                    series=TimeSeries.from_values(
+                        np.concatenate([cov.values() for cov in covariates]),
+                        columns=covariates[0].components,
+                    ),
+                    component_mask=self.transform_mask,
+                )
             self._fit_called = True
+
+        if any(self.transform_mask):
+            transformed = [
+                self.transformer.transform(cov, component_mask=self.transform_mask)
+                for cov in covariates
+            ]
         else:
-            transformed = self.transformer.transform(
-                covariates, component_mask=self.transform_mask
-            )
+            transformed = covariates
         return transformed
 
     def _update_mask(self, covariates: List[TimeSeries]) -> None:

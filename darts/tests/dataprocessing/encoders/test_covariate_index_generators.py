@@ -75,23 +75,23 @@ class CovariatesIndexGeneratorTestCase(DartsBaseTestClass):
     def helper_test_index_types(self, ig: CovariatesIndexGenerator):
         """test the index type of generated index"""
         # pd.DatetimeIndex
-        idx = ig.generate_train_idx(self.target_time, self.cov_time_train)
+        idx, _ = ig.generate_train_idx(self.target_time, self.cov_time_train)
         self.assertTrue(isinstance(idx, pd.DatetimeIndex))
-        idx = ig.generate_inference_idx(
+        idx, _ = ig.generate_inference_idx(
             self.n_short, self.target_time, self.cov_time_inf_short
         )
         self.assertTrue(isinstance(idx, pd.DatetimeIndex))
-        idx = ig.generate_train_idx(self.target_time, None)
+        idx, _ = ig.generate_train_idx(self.target_time, None)
         self.assertTrue(isinstance(idx, pd.DatetimeIndex))
 
         # pd.RangeIndex
-        idx = ig.generate_train_idx(self.target_int, self.cov_int_train)
+        idx, _ = ig.generate_train_idx(self.target_int, self.cov_int_train)
         self.assertTrue(isinstance(idx, pd.RangeIndex))
-        idx = ig.generate_inference_idx(
+        idx, _ = ig.generate_inference_idx(
             self.n_short, self.target_int, self.cov_int_inf_short
         )
         self.assertTrue(isinstance(idx, pd.RangeIndex))
-        idx = ig.generate_train_idx(self.target_int, None)
+        idx, _ = ig.generate_train_idx(self.target_int, None)
         self.assertTrue(isinstance(idx, pd.RangeIndex))
 
     def helper_test_index_generator_train(self, ig: CovariatesIndexGenerator):
@@ -101,13 +101,13 @@ class CovariatesIndexGeneratorTestCase(DartsBaseTestClass):
         """
         # pd.DatetimeIndex
         # generated index must be equal to input covariate index
-        idx = ig.generate_train_idx(self.target_time, self.cov_time_train)
+        idx, _ = ig.generate_train_idx(self.target_time, self.cov_time_train)
         self.assertTrue(idx.equals(self.cov_time_train.time_index))
         # generated index must be equal to input covariate index
-        idx = ig.generate_train_idx(self.target_time, self.cov_time_train_short)
+        idx, _ = ig.generate_train_idx(self.target_time, self.cov_time_train_short)
         self.assertTrue(idx.equals(self.cov_time_train_short.time_index))
         # generated index must be equal to input target index when no covariates are defined
-        idx = ig.generate_train_idx(self.target_time, None)
+        idx, _ = ig.generate_train_idx(self.target_time, None)
         self.assertEqual(idx[0], self.target_time.start_time())
         if isinstance(ig, PastCovariatesIndexGenerator):
             self.assertEqual(
@@ -120,13 +120,13 @@ class CovariatesIndexGeneratorTestCase(DartsBaseTestClass):
 
         # integer index
         # generated index must be equal to input covariate index
-        idx = ig.generate_train_idx(self.target_int, self.cov_int_train)
+        idx, _ = ig.generate_train_idx(self.target_int, self.cov_int_train)
         self.assertTrue(idx.equals(self.cov_int_train.time_index))
         # generated index must be equal to input covariate index
-        idx = ig.generate_train_idx(self.target_int, self.cov_int_train_short)
+        idx, _ = ig.generate_train_idx(self.target_int, self.cov_int_train_short)
         self.assertTrue(idx.equals(self.cov_int_train_short.time_index))
         # generated index must be equal to input target index when no covariates are defined
-        idx = ig.generate_train_idx(self.target_int, None)
+        idx, _ = ig.generate_train_idx(self.target_int, None)
         self.assertEqual(idx[0], self.target_int.start_time())
         if isinstance(ig, PastCovariatesIndexGenerator):
             self.assertEqual(
@@ -151,7 +151,7 @@ class CovariatesIndexGeneratorTestCase(DartsBaseTestClass):
         """
 
         # check generated inference index without passing covariates when n <= output_chunk_length
-        idx = ig.generate_inference_idx(self.n_short, self.target_time, None)
+        idx, _ = ig.generate_inference_idx(self.n_short, self.target_time, None)
         if is_past:
             n_out = self.input_chunk_length
             last_idx = self.target_time.end_time()
@@ -163,7 +163,7 @@ class CovariatesIndexGeneratorTestCase(DartsBaseTestClass):
         self.assertTrue(idx[-1] == last_idx)
 
         # check generated inference index without passing covariates when n > output_chunk_length
-        idx = ig.generate_inference_idx(self.n_long, self.target_time, None)
+        idx, _ = ig.generate_inference_idx(self.n_long, self.target_time, None)
         if is_past:
             n_out = self.input_chunk_length + self.n_long - self.output_chunk_length
             last_idx = (
@@ -177,19 +177,19 @@ class CovariatesIndexGeneratorTestCase(DartsBaseTestClass):
         self.assertTrue(len(idx) == n_out)
         self.assertTrue(idx[-1] == last_idx)
 
-        idx = ig.generate_inference_idx(
+        idx, _ = ig.generate_inference_idx(
             self.n_short, self.target_time, self.cov_time_inf_short
         )
         self.assertTrue(idx.equals(self.cov_time_inf_short.time_index))
-        idx = ig.generate_inference_idx(
+        idx, _ = ig.generate_inference_idx(
             self.n_long, self.target_time, self.cov_time_inf_long
         )
         self.assertTrue(idx.equals(self.cov_time_inf_long.time_index))
-        idx = ig.generate_inference_idx(
+        idx, _ = ig.generate_inference_idx(
             self.n_short, self.target_int, self.cov_int_inf_short
         )
         self.assertTrue(idx.equals(self.cov_int_inf_short.time_index))
-        idx = ig.generate_inference_idx(
+        idx, _ = ig.generate_inference_idx(
             self.n_long, self.target_int, self.cov_int_inf_long
         )
         self.assertTrue(idx.equals(self.cov_int_inf_long.time_index))
@@ -281,20 +281,20 @@ class CovariatesIndexGeneratorTestCase(DartsBaseTestClass):
                 ocl,
                 covariates_lags=[min_lag, max_lag],
             )
-            idx = idxg.generate_train_idx(target, None)
+            idx, _ = idxg.generate_train_idx(target, None)
             self.assertEqual(idx[0], pd.Timestamp(start_expected, freq=freq))
             self.assertEqual(idx[-1], pd.Timestamp(end_expected, freq=freq))
             # check case 0: we give covariates, index will always be the covariate time index
-            idx = idxg.generate_train_idx(target, self.cov_time_train)
+            idx, _ = idxg.generate_train_idx(target, self.cov_time_train)
             self.assertTrue(idx.equals(self.cov_time_train.time_index))
             return idxg
 
         def test_routine_inf(self, idxg, n, start_expected, end_expected):
-            idx = idxg.generate_inference_idx(n, target, None)
+            idx, _ = idxg.generate_inference_idx(n, target, None)
             self.assertEqual(idx[0], pd.Timestamp(start_expected, freq=freq))
             self.assertEqual(idx[-1], pd.Timestamp(end_expected, freq=freq))
             # check case 0: we give covariates, index will always be the covariate time index
-            idx = idxg.generate_inference_idx(n, target, self.cov_time_inf_short)
+            idx, _ = idxg.generate_inference_idx(n, target, self.cov_time_inf_short)
             self.assertTrue(idx.equals(self.cov_time_inf_short.time_index))
 
         # lags are required for RegressionModels
@@ -388,20 +388,20 @@ class CovariatesIndexGeneratorTestCase(DartsBaseTestClass):
                 ocl,
                 covariates_lags=[min_lag, max_lag],
             )
-            idx = idxg.generate_train_idx(target, None)
+            idx, _ = idxg.generate_train_idx(target, None)
             self.assertEqual(idx[0], pd.Timestamp(start_expected, freq=freq))
             self.assertEqual(idx[-1], pd.Timestamp(end_expected, freq=freq))
             # check case 0: we give covariates, index will always be the covariate time index
-            idx = idxg.generate_train_idx(target, self.cov_time_train)
+            idx, _ = idxg.generate_train_idx(target, self.cov_time_train)
             self.assertTrue(idx.equals(self.cov_time_train.time_index))
             return idxg
 
         def test_routine_inf(self, idxg, n, start_expected, end_expected):
-            idx = idxg.generate_inference_idx(n, target, None)
+            idx, _ = idxg.generate_inference_idx(n, target, None)
             self.assertTrue(idx[0], pd.Timestamp(start_expected, freq=freq))
             self.assertTrue(idx[-1], pd.Timestamp(end_expected, freq=freq))
             # check case 0: we give covariates, index will always be the covariate time index
-            idx = idxg.generate_inference_idx(n, target, self.cov_time_inf_short)
+            idx, _ = idxg.generate_inference_idx(n, target, self.cov_time_inf_short)
             self.assertTrue(idx.equals(self.cov_time_inf_short.time_index))
 
         # INFO: test cases 1, 2, and 3 only have lags in the past which yields identical results as using a
